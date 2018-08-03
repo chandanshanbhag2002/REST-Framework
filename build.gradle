@@ -1,0 +1,176 @@
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.transform.stream.StreamSource;
+import net.sf.saxon.TransformerFactoryImpl;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+apply plugin: "java"
+apply plugin: "maven"
+
+version = '7.0.1.0.0.0.0'
+
+
+
+buildscript {
+	repositories {
+		mavenCentral()
+		maven {
+			name "ext-release-local"
+			url "http://msjenkins:8081/artifactory/ext-release-local"
+		}
+	}
+	dependencies {
+		classpath group: 'net.sf.saxon', name: 'saxon', version: '8.7'
+	}
+}
+
+repositories{
+	mavenCentral()
+	maven {
+		url "http://msjenkins:8081/artifactory/ext-release-local"
+	}
+	maven{
+		url "https://mvnrepository.com/artifact/"
+	}
+	
+}
+
+sourceSets {
+	main{
+		java{
+			srcDirs=['src/']
+		}
+	}	
+	api
+	impl
+	
+}
+
+uploadArchives.enabled = false
+
+task fatJar(type: Jar) {
+	manifest {
+        attributes 'Implementation-Title': 'Gradle Jar File Example',
+        	'Main-Class': 'TestRun.RunSuite'
+    }
+    baseName = project.name
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+    with jar
+}
+dependencies {
+
+	compile 'commons-codec:commons-codec:1.5'
+	implCompile sourceSets.api.output
+	compile group: 'commons-lang', name: 'commons-lang', version: '2.6'
+	testCompile sourceSets.api.output
+	testCompile sourceSets.impl.output
+	compile group: 'org.apache.commons', name: 'commons-io', version: '1.3.2'
+	compile group: 'com.jayway.restassured', name: 'rest-assured', version: '2.9.0'
+	compile group: 'com.jayway.jsonpath', name: 'json-path', version: '2.0.0'
+	compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1'
+	compile group: 'com.jayway.restassured', name: 'json-schema-validator', version: '2.1.0'
+	compile group: 'com.relevantcodes', name: 'extentreports', version: '2.40.2'		
+	compile group: 'log4j', name: 'log4j', version: '1.2.17'
+	compile group: 'net.sourceforge.jexcelapi', name: 'jxl', version: '2.6.12'
+	compile group: 'org.apache.poi', name: 'poi', version: '3.13'
+	compile group: 'org.apache.poi', name: 'poi-ooxml', version: '3.13'
+	compile group: 'org.apache.poi', name: 'poi-ooxml-schemas', version: '3.13'
+	compile group: 'org.apache.xmlbeans', name: 'xmlbeans', version: '2.6.0'
+	compile group: 'oracle', name: 'ojdbc6', version: '11.2.0.2.0'
+	compile group: 'org.json', name: 'json', version: '20160212'
+	compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.4.4'
+	compile group: 'org.testng', name: 'testng', version: '6.11'
+	runtime configurations.apiRuntime
+	runtime configurations.implRuntime
+
+	
+}
+
+test {
+	def restSuite = 'TestSuite.xml'
+	useTestNG {
+		if (project.hasProperty('suiteFileName')){
+			restSuite=suiteFileName
+		}
+		suites restSuite
+		useDefaultListeners=true;
+	}
+	reports {
+		junitXml.enabled = false
+		html.enabled = true
+	}	
+}
+
+
+
+jar {
+	from sourceSets.api.output
+	from sourceSets.impl.output
+	from sourceSets.test.output
+}
+
+task _updateConfigFile(type: WriteProperties) {
+	def config = "Properties/config.properties"
+	// load existing properties from file
+	file(config).withInputStream {
+		def props = new Properties()
+		props.load(it)
+		properties(props)
+	}
+	['login','isOtpEnabled','DateFormat','TimeFormat','BaseURI', 'UserName', 'Password',
+	 'dBMachineName', 'dBUserName', 'dBPassword', 'sid', 'oraclePort','TestSuites'].each { name ->
+		def value = project.findProperty(name)
+		if (value != null) {
+			property(name, value)
+		}
+	}
+	setOutputFile(config)
+	writeProperties()
+}
+
+task cleanExtendReports{ 
+	delete 'extent-output'
+}
+
+File testDir = new File("${project.projectDir}" + File.separator + "TestScripts"+ File.separator + "IUP" + File.separator + "Import")
+
+task _iupzip(type: Zip) {
+testDir.eachDir{ dir ->	
+		String iupFolder = dir.toString()
+		ant.zip(destfile: iupFolder + ".zip") {
+            fileset(dir: dir) {
+            }
+        }
+	}
+}
+_updateConfigFile.dependsOn _iupzip
+
+task copyAll() {
+  copy{
+  	 from ('/'){exclude '/.gradle','/bin','/build','/src'}
+     into "build/libs"
+  	} 
+}
+copyAll.dependsOn fatJar
+
+task _bundle(type: Zip) {
+   from 'build/libs/'
+   archiveName project.name+'-'+version+'.zip'
+   destinationDir(file('build'))
+}
+task versionTxt()  {
+    doLast {
+        new File("build/libs/RunTest.bat").text = "java -jar "+project.name+'-'+version+".jar"
+        new File("build/libs/RunTest.sh").text = "java -jar "+project.name+'-'+version+".jar"
+    }
+}
+fatJar.dependsOn versionTxt
+_bundle.dependsOn fatJar
+
+
+
+
+
